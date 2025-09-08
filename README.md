@@ -1,4 +1,4 @@
-# Virtual Hand Gesture Keyboard-practice
+# Virtual Hand Gesture Keyboard(practise)
 
 一個基於 **Web** 的虛擬鍵盤專案，使用 **MediaPipe Hands** 偵測手指，讓使用者可以透過手勢操作鍵盤打字。  
 此專案功能與 Python + OpenCV 版本對應，支援：
