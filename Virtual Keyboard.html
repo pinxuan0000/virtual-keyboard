@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Web Virtual Keyboard with Hand Tracking</title>
+<style>
+  body { font-family: Arial; display: flex; flex-direction: column; align-items: center; }
+  #display-container { 
+    position: relative; width: 90%; max-width: 800px; height: 100px; 
+    border: 2px solid #333; margin-bottom: 20px; background: #fff;
+    font-size: 2em; padding: 10px; overflow-x:auto;
+  }
+  #display { white-space: pre; }
+  #cursor {
+    width: 2px; background-color: gray; position: absolute;
+    top: 10px; bottom: 10px; animation: blink 1s steps(2,start) infinite;
+  }
+  @keyframes blink { 0%,50% {opacity:1;} 50.01%,100% {opacity:0;} }
+  
+  #video { border:1px solid #333; }
+  #canvas { position:absolute; top:0; left:0; pointer-events:none; }
+</style>
+</head>
+<body>
+
+<div id="display-container">
+  <div id="display"></div>
+  <div id="cursor"></div>
+</div>
+
+<video id="video" width="640" height="480" autoplay></video>
+<canvas id="canvas" width="640" height="480"></canvas>
+
+<script type="module">
+import { Hands } from 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js';
+import { Camera } from 'https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js';
+
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const displayContainer = document.getElementById('display-container');
+const display = document.getElementById('display');
+const cursor = document.getElementById('cursor');
+
+let typedText = "";
+let cursorPos = 0;
+
+const keys = [
+    ['Q','W','E','R','T','Y','U','I','O','P'],
+    ['A','S','D','F','G','H','J','K','L'],
+    ['Z','X','C','V','B','N','M','<','>'],
+    ['Space','Backspace']
+];
+
+function getKeySize(key){
+    return (key==='Space' || key==='Backspace') ? {w:150,h:50} : {w:50,h:50};
+}
+
+function drawKeyboard(highlightKey=null){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    // 畫背景影像
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    const startY = 300;
+    keys.forEach((row,i)=>{
+        let rowWidth = row.reduce((sum,k)=>sum+getKeySize(k).w,0) + (row.length-1)*10;
+        let offsetX = (canvas.width-rowWidth)/2;
+        let xPos = offsetX;
+        row.forEach(key=>{
+            let size = getKeySize(key);
+            ctx.fillStyle = (highlightKey===key)?'green':'#ccc';
+            ctx.fillRect(xPos,startY+i*(size.h+10),size.w,size.h);
+            ctx.fillStyle='black';
+            ctx.font = key.length>1?'16px Arial':'20px Arial';
+            ctx.fillText(key, xPos+10, startY+i*(size.h+10)+35);
+            key.x = xPos; key.y = startY+i*(size.h+10); key.w = size.w; key.h = size.h;
+            xPos += size.w+10;
+        });
+    });
+}
+
+function getKeyFromPosition(x,y){
+    for(let row of keys){
+        for(let key of row){
+            if(x>key.x && x<key.x+key.w && y>key.y && y<key.y+key.h) return key;
+        }
+    }
+    return null;
+}
+
+function updateDisplay(){
+    display.innerText = typedText;
+    // 游標位置
+    const range = document.createRange();
+    if(display.firstChild){
+        range.setStart(display.firstChild, cursorPos);
+        range.setEnd(display.firstChild, cursorPos);
+    }else{
+        range.setStart(display,0); range.setEnd(display,0);
+    }
+    const rects = range.getClientRects();
+    if(rects.length>0){
+        cursor.style.left = (rects[0].left - displayContainer.getBoundingClientRect().left)+'px';
+    }else{
+        cursor.style.left='0px';
+    }
+}
+
+const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+hands.setOptions({maxNumHands:1,minDetectionConfidence:0.7,minTrackingConfidence:0.5});
+hands.onResults(results=>{
+    drawKeyboard();
+    if(results.multiHandLandmarks && results.multiHandLandmarks.length>0){
+        const lm = results.multiHandLandmarks[0][8]; // 食指尖
+        const x = lm.x*canvas.width;
+        const y = lm.y*canvas.height;
+
+        ctx.fillStyle='red';
+        ctx.beginPath();
+        ctx.arc(x,y,10,0,Math.PI*2);
+        ctx.fill();
+
+        let key = getKeyFromPosition(x,y);
+        if(key){
+            drawKeyboard(key);
+            // 觸發按鍵
+            if(!key.clicked){
+                key.clicked = true;
+                if(key==='Backspace'){
+                    if(cursorPos>0){
+                        typedText = typedText.slice(0,cursorPos-1)+typedText.slice(cursorPos);
+                        cursorPos--;
+                    }
+                }else if(key==='Space'){
+                    typedText = typedText.slice(0,cursorPos)+' '+typedText.slice(cursorPos);
+                    cursorPos++;
+                }else{
+                    typedText = typedText.slice(0,cursorPos)+key+typedText.slice(cursorPos);
+                    cursorPos++;
+                }
+                updateDisplay();
+            }
+        }
+        keys.flat().forEach(k=>{ if(k!==key) k.clicked=false; });
+    }
+});
+
+const camera = new Camera(video,{
+    onFrame: async ()=>{ await hands.send({image:video}); },
+    width:640, height:480
+});
+camera.start();
+
+updateDisplay();
+drawKeyboard();
+</script>
+
+</body>
+</html>
